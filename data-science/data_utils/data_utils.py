@@ -137,7 +137,7 @@ def one_hot_encode_categorical(
     return df_encoded
 
 
-def scale_features_sklearn_robust(
+def scale_features_robust(
     df: pl.DataFrame,
     columns_to_scale: List[str],
     scaler_object: Optional[RobustScaler] = None
@@ -205,3 +205,17 @@ def scale_features_sklearn_robust(
         print("No scaling expressions were applied (e.g., due to errors or no valid columns).")
         
     return df_processed, current_scaler
+
+
+def create_lagged_features(df: pl.DataFrame, lag_steps: List[int], features: List[str]) -> pl.DataFrame:
+    """Creates lagged features for specified columns in a Polars DataFrame."""
+    
+    for col in features:
+        for lag in lag_steps:
+            df = df.with_columns([
+                pl.col(col).shift(lag).alias(f"{col}_lag_{lag}")
+            ])
+    
+    df = df.drop_nulls() # drop nulls created due to lagging
+    
+    return df
