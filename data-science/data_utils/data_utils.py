@@ -152,26 +152,12 @@ def scale_features_sklearn_robust(
     If 'scaler_object' is provided (typically for validation/test data):
         Uses the provided RobustScaler to scale the df and returns the
         scaled df and the original scaler_object.
-
-    Args:
-        df: Input Polars DataFrame.
-        columns_to_scale: List of numerical column names to scale. These columns
-                          should be free of NaNs for predictable behavior,
-                          although RobustScaler has some NaN handling during fit.
-        scaler_object: Optional pre-fitted scikit-learn RobustScaler object.
-
-    Returns:
-        A tuple containing:
-            - df_processed: Polars DataFrame with specified columns scaled.
-            - learned_scaler_object: The scikit-learn RobustScaler object
-                                     (either newly fitted or the one passed in).
     """
     df_processed = df.clone()
     is_fitting_mode = scaler_object is None
 
     actual_columns_to_scale = [col for col in columns_to_scale if col in df_processed.columns]
     
-    # Filter for numeric types only from the actual columns to scale
     numeric_cols_for_scaling = []
     for col_name in actual_columns_to_scale:
         if df_processed[col_name].dtype in pl.NUMERIC_DTYPES:
@@ -182,21 +168,10 @@ def scale_features_sklearn_robust(
     
     if not numeric_cols_for_scaling:
         print("No valid numeric columns found to scale. Returning original DataFrame and initial scaler object.")
-        # If in fitting mode and no valid columns, return a new unfitted scaler
         return df_processed, scaler_object if scaler_object else RobustScaler()
 
-    # Extract data to be scaled as a NumPy array
-    # Ensure no all-null columns are passed to .to_numpy() if they cause issues,
-    # though RobustScaler might handle them by ignoring.
-    # It's better if imputation has already handled extensive NaNs.
-    data_to_scale_np = df_processed.select(numeric_cols_for_scaling).to_numpy()
 
-    # Check for columns that are entirely NaN after conversion to numpy,
-    # as this can cause issues with RobustScaler fit if not handled.
-    # RobustScaler can sometimes ignore them if a feature is all NaN during fit.
-    if np.all(np.isnan(data_to_scale_np), axis=0).any() and is_fitting_mode:
-        print("Warning: One or more columns to scale are entirely NaN. "
-              "RobustScaler might ignore these during fit. Ensure imputation is complete.")
+    data_to_scale_np = df_processed.select(numeric_cols_for_scaling).to_numpy()
 
     if is_fitting_mode:
         current_scaler = RobustScaler()
@@ -206,13 +181,8 @@ def scale_features_sklearn_robust(
             print(f"Error during RobustScaler fit_transform: {e}. "
                   "This might be due to all-NaN columns or other data issues. "
                   "Returning original DataFrame.")
-            return df_processed, current_scaler # Return original df and unfitted scaler
-    else: # Transform mode
-        if scaler_object is None:
-            # This case should ideally not be reached if logic is followed,
-            # but as a safeguard:
-            print("Error: scaler_object is None in transform mode. Cannot proceed.")
-            return df_processed, None # Or raise an error
+            return df_processed, current_scaler
+    else:
         current_scaler = scaler_object
         try:
             scaled_data_np = current_scaler.transform(data_to_scale_np)
@@ -223,12 +193,8 @@ def scale_features_sklearn_robust(
             return df_processed, current_scaler
 
 
-    # Create Polars expressions to update columns with scaled data
     update_expressions = []
     for i, col_name in enumerate(numeric_cols_for_scaling):
-        # Create a Polars Series from the scaled NumPy column
-        # Handle potential all-NaN columns from scaling if necessary, though
-        # RobustScaler usually outputs numbers or NaNs where input was NaN.
         scaled_series = pl.Series(name=col_name, values=scaled_data_np[:, i])
         update_expressions.append(scaled_series)
 
